@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Playing Cards Selector</title>
+  <link rel="stylesheet" href="styles.css">
+  <!-- React + ReactDOM via CDN for zero-build demo -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script crossorigin src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+</head>
+<body>
+  <main id="root"></main>
+
+  <script type="text/babel">
+    const { useState, useMemo } = React;
+
+    const SUITS = [
+      { sym: '♠', name: 'Spades', color: 'black' },
+      { sym: '♥', name: 'Hearts', color: 'red' },
+      { sym: '♦', name: 'Diamonds', color: 'red' },
+      { sym: '♣', name: 'Clubs', color: 'black' },
+    ];
+
+    const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+
+    function buildDeck() {
+      const deck = [];
+      for (const suit of SUITS) {
+        for (const rank of RANKS) {
+          deck.push({ id: `${rank}${suit.name[0]}`, suit: suit.name, rank, sym: suit.sym, color: suit.color });
+        }
+      }
+      return deck;
+    }
+
+    function App() {
+      const deck = useMemo(buildDeck, []);
+      const [selected, setSelected] = useState(new Set());
+      // expanded state per suit
+      const [expanded, setExpanded] = useState(() => {
+        const obj = {};
+        for (const s of SUITS) obj[s.name] = true; // default: open all (you can change to false)
+        return obj;
+      });
+
+      const longPressTimer = React.useRef(null);
+      const ignoreClick = React.useRef(false);
+
+  // per-suit click timers ref (top-level hook)
+  const clickTimersRef = React.useRef({});
+
+      function toggle(cardId) {
+        setSelected(prev => {
+          const next = new Set(prev);
+          if (next.has(cardId)) next.delete(cardId);
+          else next.add(cardId);
+          return next;
+        });
+      }
+
+      function toggleSuit(suitName) {
+        setExpanded(prev => ({ ...prev, [suitName]: !prev[suitName] }));
+      }
+
+      // refs to suit header DOM nodes for flashing
+      const suitHeaderRefs = React.useRef({});
+
+      // toast state
+      const [toast, setToast] = React.useState(null);
+
+      function showToast(message, ms = 1600) {
+        setToast(message);
+        window.clearTimeout(showToast._t);
+        showToast._t = window.setTimeout(() => setToast(null), ms);
+      }
+
+      // toggle select-all for a suit: if all already selected, deselect them; otherwise select them
+      function toggleAllSuit(suitName) {
+        const suitCards = deck.filter(c => c.suit === suitName);
+        const allSelected = suitCards.every(c => selected.has(c.id));
+
+        setSelected(prev => {
+          const next = new Set(prev);
+          if (allSelected) {
+            for (const c of suitCards) next.delete(c.id);
+          } else {
+            for (const c of suitCards) next.add(c.id);
+          }
+          return next;
+        });
+
+        // visual flash on the suit header button
+        const node = suitHeaderRefs.current[suitName];
+        if (node) {
+          node.classList.add('flash');
+          setTimeout(() => node.classList.remove('flash'), 420);
+        }
+
+        // show toast
+        showToast(allSelected ? `All ${suitName} deselected` : `All ${suitName} selected`);
+
+        return !allSelected; // returns true if cards are now selected
+      }
+
+      const selectedCount = selected.size;
+      const percent = Math.round((selectedCount / deck.length) * 100);
+
+      // debug: deck length should be 52
+      console.debug('Deck length:', deck.length);
+
+      return (
+        <div className="container">
+          <header>
+            <h1>Playing Cards Selector</h1>
+            <p className="subtitle">Tap or click cards to select them</p>
+          </header>
+
+          <section className="status">
+            <div className="progress">
+              <div className="bar" style={{ width: `${percent}%` }}></div>
+            </div>
+            <div className="counter" aria-live="polite">{selectedCount} / {deck.length} cards selected ({percent}%)</div>
+          </section>
+
+          <section className="grid" role="list">
+            {SUITS.map(suit => {
+              const cards = deck.filter(c => c.suit === suit.name);
+              const isOpen = expanded[suit.name];
+
+              // handlers for click, dblclick and long-press on suit header
+              // Use pointer events for better touch support and per-suit timers to avoid single-click running when dblclick/long-press occurs.
+
+              function onPointerDown(e) {
+                // start long-press timer
+                longPressTimer.current = setTimeout(() => {
+                  // long press: toggle select-all and open if selecting
+                  const nowSelected = toggleAllSuit(suit.name);
+                  if (nowSelected) setExpanded(prev => ({ ...prev, [suit.name]: true }));
+                  // cancel any pending click toggle
+                  if (clickTimersRef.current[suit.name]) {
+                    clearTimeout(clickTimersRef.current[suit.name]);
+                    delete clickTimersRef.current[suit.name];
+                  }
+                }, 500);
+              }
+
+              function onPointerUp(e) {
+                // clear long-press timer
+                if (longPressTimer.current) {
+                  clearTimeout(longPressTimer.current);
+                  longPressTimer.current = null;
+                }
+              }
+
+              function onPointerCancel(e) {
+                if (longPressTimer.current) {
+                  clearTimeout(longPressTimer.current);
+                  longPressTimer.current = null;
+                }
+              }
+
+              function onPointerMove(e) {
+                // moving should cancel a pending long-press
+                if (longPressTimer.current) {
+                  clearTimeout(longPressTimer.current);
+                  longPressTimer.current = null;
+                }
+              }
+
+              // Touch event handlers for older/mobile emulators that rely on touch events
+              function onTouchStart(e) {
+                // start long-press timer on touch start
+                longPressTimer.current = setTimeout(() => {
+                  const nowSelected = toggleAllSuit(suit.name);
+                  if (nowSelected) setExpanded(prev => ({ ...prev, [suit.name]: true }));
+                  if (clickTimersRef.current[suit.name]) {
+                    clearTimeout(clickTimersRef.current[suit.name]);
+                    delete clickTimersRef.current[suit.name];
+                  }
+                }, 500);
+              }
+
+              function onTouchMove(e) {
+                // cancel long-press on move (scroll)
+                if (longPressTimer.current) {
+                  clearTimeout(longPressTimer.current);
+                  longPressTimer.current = null;
+                }
+              }
+
+              function onTouchEnd(e) {
+                if (longPressTimer.current) {
+                  clearTimeout(longPressTimer.current);
+                  longPressTimer.current = null;
+                }
+              }
+
+              function onClickSuit(e) {
+                // Delay the single-click action briefly so a double-click can cancel it.
+                if (clickTimersRef.current[suit.name]) {
+                  clearTimeout(clickTimersRef.current[suit.name]);
+                }
+                clickTimersRef.current[suit.name] = setTimeout(() => {
+                  toggleSuit(suit.name);
+                  delete clickTimersRef.current[suit.name];
+                }, 220);
+              }
+
+              function onDoubleClick(e) {
+                // If a pending single-click toggle exists, cancel it
+                if (clickTimersRef.current[suit.name]) {
+                  clearTimeout(clickTimersRef.current[suit.name]);
+                  delete clickTimersRef.current[suit.name];
+                }
+                const nowSelected = toggleAllSuit(suit.name);
+                if (nowSelected) setExpanded(prev => ({ ...prev, [suit.name]: true }));
+              }
+
+              return (
+                <div className="suit-group" key={suit.name}>
+                  <button
+                    ref={(el) => { suitHeaderRefs.current[suit.name] = el }}
+                    className={`suit-header ${suit.color}`}
+                    onPointerDown={onPointerDown}
+                    onPointerUp={onPointerUp}
+                    onPointerMove={onPointerMove}
+                    onPointerCancel={onPointerCancel}
+                    onTouchStart={onTouchStart}
+                    onTouchMove={onTouchMove}
+                    onTouchEnd={onTouchEnd}
+                    onClick={onClickSuit}
+                    onDoubleClick={onDoubleClick}
+                    aria-expanded={isOpen}
+                    title={suit.name}
+                  >
+                    <span className="suit-symbol">{suit.sym}</span>
+                  </button>
+
+                  {isOpen && (
+                    <div className="suit-cards">
+                      {cards.map(card => (
+                        <button
+                          key={card.id}
+                          className={`card ${selected.has(card.id) ? 'selected' : ''} ${card.color}`}
+                          onClick={() => toggle(card.id)}
+                          aria-pressed={selected.has(card.id)}
+                          role="listitem"
+                          title={`${card.rank} of ${card.suit}`}
+                        >
+                          <div className="card-inner">
+                            <div className="corner top-left">
+                              <span className="rank">{card.rank}</span>
+                              <span className="suit">{card.sym}</span>
+                            </div>
+
+                            <div className="center-suit">{card.sym}</div>
+
+                            <div className="corner bottom-right">
+                              <span className="rank">{card.rank}</span>
+                              <span className="suit">{card.sym}</span>
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </section>
+
+          <footer>
+            <div>{selectedCount} / {deck.length} cards selected ({percent}%)</div>
+          </footer>
+          {toast && (
+            <div className="toast" role="status" aria-live="polite">{toast}</div>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
