@@ -38,18 +38,15 @@
     function App() {
       const deck = useMemo(buildDeck, []);
       const [selected, setSelected] = useState(new Set());
-      // expanded state per suit
-      const [expanded, setExpanded] = useState(() => {
-        const obj = {};
-        for (const s of SUITS) obj[s.name] = true; // default: open all (you can change to false)
-        return obj;
-      });
+      // suits are always shown (collapse/expand removed)
 
       const longPressTimer = React.useRef(null);
       const ignoreClick = React.useRef(false);
 
   // per-suit click timers ref (top-level hook)
   const clickTimersRef = React.useRef({});
+  // per-suit last tap timestamp for manual double-tap detection
+  const lastTapRef = React.useRef({});
 
       function toggle(cardId) {
         setSelected(prev => {
@@ -60,9 +57,7 @@
         });
       }
 
-      function toggleSuit(suitName) {
-        setExpanded(prev => ({ ...prev, [suitName]: !prev[suitName] }));
-      }
+      // toggleSuit removed
 
       // refs to suit header DOM nodes for flashing
       const suitHeaderRefs = React.useRef({});
@@ -127,7 +122,8 @@
           <section className="grid" role="list">
             {SUITS.map(suit => {
               const cards = deck.filter(c => c.suit === suit.name);
-              const isOpen = expanded[suit.name];
+              // whether all cards in this suit are selected
+              const suitAllSelected = deck.filter(c => c.suit === suit.name).every(c => selected.has(c.id));
 
               // handlers for click, dblclick and long-press on suit header
               // Use pointer events for better touch support and per-suit timers to avoid single-click running when dblclick/long-press occurs.
@@ -135,9 +131,8 @@
               function onPointerDown(e) {
                 // start long-press timer
                 longPressTimer.current = setTimeout(() => {
-                  // long press: toggle select-all and open if selecting
+                  // long press: toggle select-all
                   const nowSelected = toggleAllSuit(suit.name);
-                  if (nowSelected) setExpanded(prev => ({ ...prev, [suit.name]: true }));
                   // cancel any pending click toggle
                   if (clickTimersRef.current[suit.name]) {
                     clearTimeout(clickTimersRef.current[suit.name]);
@@ -174,11 +169,6 @@
                 // start long-press timer on touch start
                 longPressTimer.current = setTimeout(() => {
                   const nowSelected = toggleAllSuit(suit.name);
-                  if (nowSelected) setExpanded(prev => ({ ...prev, [suit.name]: true }));
-                  if (clickTimersRef.current[suit.name]) {
-                    clearTimeout(clickTimersRef.current[suit.name]);
-                    delete clickTimersRef.current[suit.name];
-                  }
                 }, 500);
               }
 
@@ -198,31 +188,23 @@
               }
 
               function onClickSuit(e) {
-                // Delay the single-click action briefly so a double-click can cancel it.
-                if (clickTimersRef.current[suit.name]) {
-                  clearTimeout(clickTimersRef.current[suit.name]);
-                }
-                clickTimersRef.current[suit.name] = setTimeout(() => {
-                  toggleSuit(suit.name);
-                  delete clickTimersRef.current[suit.name];
-                }, 220);
-              }
+                const now = Date.now();
+                const last = lastTapRef.current[suit.name] || 0;
+                const diff = now - last;
+                lastTapRef.current[suit.name] = now;
 
-              function onDoubleClick(e) {
-                // If a pending single-click toggle exists, cancel it
-                if (clickTimersRef.current[suit.name]) {
-                  clearTimeout(clickTimersRef.current[suit.name]);
-                  delete clickTimersRef.current[suit.name];
+                // quick double-tap detection (300ms) -> toggle select-all
+                if (diff > 0 && diff < 300) {
+                  toggleAllSuit(suit.name);
                 }
-                const nowSelected = toggleAllSuit(suit.name);
-                if (nowSelected) setExpanded(prev => ({ ...prev, [suit.name]: true }));
+                // single click intentionally does nothing (no collapse/expand)
               }
 
               return (
                 <div className="suit-group" key={suit.name}>
                   <button
                     ref={(el) => { suitHeaderRefs.current[suit.name] = el }}
-                    className={`suit-header ${suit.color}`}
+                    className={`suit-header ${suit.color} ${suitAllSelected ? 'suit-selected' : ''}`}
                     onPointerDown={onPointerDown}
                     onPointerUp={onPointerUp}
                     onPointerMove={onPointerMove}
@@ -231,15 +213,11 @@
                     onTouchMove={onTouchMove}
                     onTouchEnd={onTouchEnd}
                     onClick={onClickSuit}
-                    onDoubleClick={onDoubleClick}
-                    aria-expanded={isOpen}
                     title={suit.name}
                   >
                     <span className="suit-symbol">{suit.sym}</span>
                   </button>
-
-                  {isOpen && (
-                    <div className="suit-cards">
+                  <div className="suit-cards">
                       {cards.map(card => (
                         <button
                           key={card.id}
@@ -265,7 +243,6 @@
                         </button>
                       ))}
                     </div>
-                  )}
                 </div>
               );
             })}

@@ -65,7 +65,7 @@ h1{margin:8px 0;font-size:1.4rem}
 
 .suit-header{
   appearance:none;
-  border:none;
+  border:1px solid rgba(16,24,40,0.08);
   background:transparent;
   font-size:1.25rem;
   display:flex;
@@ -83,6 +83,8 @@ h1{margin:8px 0;font-size:1.4rem}
 .suit-header.flash{
   animation: flash 420ms ease;
 }
+
+.suit-header.suit-selected{box-shadow:0 6px 18px rgba(37,99,235,0.12);border-color:rgba(37,99,235,0.35);background:var(--selected)}
 
 @keyframes flash{
   0%{background:transparent}
